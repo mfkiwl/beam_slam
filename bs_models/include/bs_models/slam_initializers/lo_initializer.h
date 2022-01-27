@@ -5,7 +5,6 @@
 #include <fuse_core/async_sensor_model.h>
 #include <fuse_graphs/hash_graph.h>
 #include <sensor_msgs/PointCloud2.h>
-#include <std_msgs/Bool.h>
 
 #include <beam_filtering/Utils.h>
 #include <beam_matching/Matchers.h>
@@ -48,18 +47,23 @@ public:
    */
   void processLidar(const sensor_msgs::PointCloud2::ConstPtr& msg);
 
-  /**
-   * @brief Callback for a reset request, which will start the initialization
-   * over again
-   * @param[in] msg
-   */
-  void processReset(const std_msgs::Bool::ConstPtr& msg);
-
 protected:
   /**
-   * @brief loads all params and sets up scan registration and feature extractor
+   * @brief Initialize variables that should remain constant in the case of a
+   * reset request (publishers, parameters, extrinsics etc)
    */
   void onInit() override;
+
+  /**
+   * @brief Subscribe to topics and initialize values that should be fresh after
+   * a reset
+   */
+  void onStart() override;
+
+  /**
+   * @brief Shutdown subscribers and reset variables that require resetting
+   */
+  void onStop() override;
 
   /**
    * @brief Register scan against previous and then add to the queue of scan
@@ -108,7 +112,6 @@ protected:
 
   // subscribers & publishers
   ros::Subscriber lidar_subscriber_;
-  ros::Subscriber reset_subscriber_;
   ros::Publisher results_publisher_;
 
   // main parameters

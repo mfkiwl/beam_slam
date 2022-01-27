@@ -2,7 +2,6 @@
 
 #include <fuse_core/async_sensor_model.h>
 #include <sensor_msgs/Imu.h>
-#include <std_msgs/Bool.h>
 
 #include <bs_common/extrinsics_lookup_online.h>
 #include <bs_models/frame_initializers/frame_initializers.h>
@@ -27,28 +26,23 @@ public:
    */
   void processIMU(const sensor_msgs::Imu::ConstPtr& msg);
 
-  /**
-   * @brief Callback for a reset request, which will start the initialization
-   * over again
-   * @param[in] msg
-   */
-  void processReset(const std_msgs::Bool::ConstPtr& msg);
-
 protected:
   /**
-   * @brief todo
+   * @brief Initialize variables that should remain constant in the case of a
+   * reset request (publishers, parameters, extrinsics etc)
    */
   void onInit() override;
 
   /**
-   * @brief todo
+   * @brief Subscribe to topics and initialize values that should be fresh after
+   * a reset
    */
-  void onStart() override {}
+  void onStart() override;
 
   /**
-   * @brief todo
+   * @brief Shutdown subscribers and reset variables that require resetting
    */
-  void onStop() override {}
+  void onStop() override;
 
   /**
    * @brief publish results of initialization to a InitializedPathMsg
@@ -61,7 +55,6 @@ protected:
 
   // subscribers
   ros::Subscriber imu_subscriber_;
-  ros::Subscriber reset_subscriber_;
   ros::Publisher results_publisher_;
 
   // get access to extrinsics singleton

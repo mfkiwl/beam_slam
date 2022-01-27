@@ -24,44 +24,10 @@ void LoInitializer::onInit() {
   // Read settings from the parameter sever
   params_.loadFromROS(private_node_handle_);
 
-  // subscribe to lidar topic
-  lidar_subscriber_ = private_node_handle_.subscribe(
-      params_.lidar_topic, 100, &LoInitializer::processLidar, this);
-
   // init publisher
   results_publisher_ =
       private_node_handle_.advertise<bs_common::InitializedPathMsg>("result",
                                                                     1000);
-
-  // subscribe to reset topic
-  reset_subscriber_ = private_node_handle_.subscribe(
-      "/slam_reset", 1, &LoInitializer::processReset, this);
-
-  // init scan registration
-  std::shared_ptr<LoamParams> matcher_params =
-      std::make_shared<LoamParams>(params_.matcher_params_path);
-
-  // override iteration since we need this to be fast and scans are very close
-  // to each other so iteration isn't necessary
-  matcher_params->iterate_correspondences = false;
-
-  // override ceres config
-  beam_optimization::CeresParams ceres_params(params_.ceres_config_path);
-  matcher_params->optimizer_params = ceres_params;
-
-  std::unique_ptr<Matcher<LoamPointCloudPtr>> matcher =
-      std::make_unique<LoamMatcher>(*matcher_params);
-
-  scan_registration::ScanToMapLoamRegistration::Params reg_params;
-  reg_params.LoadFromJson(params_.registration_config_path);
-  reg_params.store_full_cloud = false;
-
-  scan_registration_ =
-      std::make_unique<scan_registration::ScanToMapLoamRegistration>(
-          std::move(matcher), reg_params.GetBaseParams(), reg_params.map_size,
-          reg_params.store_full_cloud);
-  scan_registration_->SetFixedCovariance(0.000001);
-  feature_extractor_ = std::make_shared<LoamFeatureExtractor>(matcher_params);
 
   // get filter params
   nlohmann::json J;
@@ -89,33 +55,49 @@ void LoInitializer::onInit() {
     }
   }
 }
+void LoInitializer::onStart() {
+  // subscribe to lidar topic
+  lidar_subscriber_ = private_node_handle_.subscribe(
+      params_.lidar_topic, 100, &LoInitializer::processLidar, this);
 
-void LoInitializer::processReset(const std_msgs::Bool::ConstPtr& msg) {
+  // init scan registration
+  std::shared_ptr<LoamParams> matcher_params =
+      std::make_shared<LoamParams>(params_.matcher_params_path);
+
+  // override iteration since we need this to be fast and scans are very close
+  // to each other so iteration isn't necessary
+  matcher_params->iterate_correspondences = false;
+
+  // override ceres config
+  beam_optimization::CeresParams ceres_params(params_.ceres_config_path);
+  matcher_params->optimizer_params = ceres_params;
+
+  std::unique_ptr<Matcher<LoamPointCloudPtr>> matcher =
+      std::make_unique<LoamMatcher>(*matcher_params);
+
+  scan_registration::ScanToMapLoamRegistration::Params reg_params;
+  reg_params.LoadFromJson(params_.registration_config_path);
+  reg_params.store_full_cloud = false;
+
+  scan_registration_ =
+      std::make_unique<scan_registration::ScanToMapLoamRegistration>(
+          std::move(matcher), reg_params.GetBaseParams(), reg_params.map_size,
+          reg_params.store_full_cloud);
+  scan_registration_->SetFixedCovariance(0.000001);
+}
+
+void LoInitializer::onStop() {
   // if a reset request is called then we set initialization to be incomplete
   // and we wipe memory
-  if (msg->data == true) {
-    initialization_complete_ = false;
-    keyframes_.clear();
-    keyframe_scan_counter_ = 0;
-    keyframe_start_time_ = ros::Time(0);
-    prev_stamp_ = ros::Time(0);
-    keyframe_cloud_.clear();
-    T_WORLD_KEYFRAME_ = Eigen::Matrix4d::Identity();
-    scan_registration_->GetMapMutable().Clear();
-    // reinitialize scan registration
-    std::shared_ptr<LoamParams> matcher_params =
-        std::make_shared<LoamParams>(params_.matcher_params_path);
-    std::unique_ptr<Matcher<LoamPointCloudPtr>> matcher =
-        std::make_unique<LoamMatcher>(*matcher_params);
-    scan_registration::ScanToMapLoamRegistration::Params reg_params;
-    reg_params.LoadFromJson(params_.registration_config_path);
-    reg_params.store_full_cloud = false;
-    scan_registration_ =
-        std::make_unique<scan_registration::ScanToMapLoamRegistration>(
-            std::move(matcher), reg_params.GetBaseParams(), reg_params.map_size,
-            reg_params.store_full_cloud);
-    scan_registration_->SetFixedCovariance(0.000001);
-  }
+  initialization_complete_ = false;
+  keyframes_.clear();
+  keyframe_scan_counter_ = 0;
+  keyframe_start_time_ = ros::Time(0);
+  prev_stamp_ = ros::Time(0);
+  keyframe_cloud_.clear();
+  T_WORLD_KEYFRAME_ = Eigen::Matrix4d::Identity();
+  scan_registration_->GetMapMutable().Clear();
+  lidar_subscriber_.shutdown();
 }
 
 void LoInitializer::processLidar(

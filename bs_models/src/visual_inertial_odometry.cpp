@@ -4,6 +4,7 @@
 #include <fuse_core/transaction.h>
 #include <pluginlib/class_list_macros.h>
 #include <std_msgs/UInt64MultiArray.h>
+#include <std_srvs/Empty.h>
 
 #include <beam_cv/OpenCVConversions.h>
 #include <beam_cv/descriptors/Descriptors.h>
@@ -35,6 +36,19 @@ void VisualInertialOdometry::onInit() {
   vio_params_.loadFromROS(private_node_handle_);
   calibration_params_.loadFromROS();
 
+  // Advertise publishers
+  init_odom_publisher_ =
+      private_node_handle_.advertise<nav_msgs::Odometry>("odometry", 10);
+  new_keyframe_publisher_ =
+      private_node_handle_.advertise<std_msgs::Header>("keyframes", 10);
+  landmark_publisher_ =
+      private_node_handle_.advertise<std_msgs::UInt64MultiArray>("landmarks",
+                                                                 10);
+  slam_chunk_publisher_ = private_node_handle_.advertise<SlamChunkMsg>(
+      "/local_mapper/slam_results", 10);
+  reloc_publisher_ = private_node_handle_.advertise<RelocRequestMsg>(
+      "/local_mapper/reloc_request", 10);
+
   // init frame initializer if desired
   if (vio_params_.frame_initializer_type == "ODOMETRY") {
     frame_initializer_ =
@@ -53,9 +67,6 @@ void VisualInertialOdometry::onInit() {
   // Load camera model and Create Map object
   cam_model_ = beam_calibration::CameraModel::Create(
       calibration_params_.cam_intrinsics_path);
-  visual_map_ =
-      std::make_shared<VisualMap>(cam_model_, vio_params_.num_features_to_track,
-                                  vio_params_.keyframe_window_size);
 
   // Get descriptor type
   descriptor_type_ = beam_cv::DescriptorTypeStringMap[vio_params_.descriptor];
@@ -77,19 +88,6 @@ void VisualInertialOdometry::onInit() {
   tracker_params.LoadFromJson(vio_params_.tracker_config);
   tracker_ = std::make_shared<beam_cv::KLTracker>(
       tracker_params, detector, descriptor, vio_params_.tracker_window_size);
-
-  // Create initializer object
-  initialization_ = std::make_shared<vision::VIOInitialization>(
-      cam_model_, tracker_, vio_params_.init_path_topic,
-      calibration_params_.imu_intrinsics_path,
-      vio_params_.init_use_scale_estimate,
-      vio_params_.init_max_optimization_time_in_seconds,
-      vio_params_.init_map_output_directory);
-
-  // placeholder keyframe
-  sensor_msgs::Image image;
-  Keyframe kf(ros::Time(0), image);
-  keyframes_.push_back(kf);
 }
 
 void VisualInertialOdometry::onStart() {
@@ -103,18 +101,38 @@ void VisualInertialOdometry::onStart() {
       &ThrottledIMUCallback::callback, &throttled_imu_callback_,
       ros::TransportHints().tcpNoDelay(false));
 
-  // Advertise publishers
-  init_odom_publisher_ =
-      private_node_handle_.advertise<nav_msgs::Odometry>("odometry", 10);
-  new_keyframe_publisher_ =
-      private_node_handle_.advertise<std_msgs::Header>("keyframes", 10);
-  landmark_publisher_ =
-      private_node_handle_.advertise<std_msgs::UInt64MultiArray>("landmarks",
-                                                                 10);
-  slam_chunk_publisher_ = private_node_handle_.advertise<SlamChunkMsg>(
-      "/local_mapper/slam_results", 10);
-  reloc_publisher_ = private_node_handle_.advertise<RelocRequestMsg>(
-      "/local_mapper/reloc_request", 10);
+  // Set visual map
+  visual_map_ =
+      std::make_shared<VisualMap>(cam_model_, vio_params_.num_features_to_track,
+                                  vio_params_.keyframe_window_size);
+
+  // Create initializer object
+  initialization_ = std::make_shared<vision::VIOInitialization>(
+      cam_model_, tracker_, vio_params_.init_path_topic,
+      calibration_params_.imu_intrinsics_path,
+      vio_params_.init_use_scale_estimate,
+      vio_params_.init_max_optimization_time_in_seconds,
+      vio_params_.init_map_output_directory);
+
+  // Set keyframes deque
+  sensor_msgs::Image image;
+  Keyframe kf(ros::Time(0), image);
+  keyframes_.push_back(kf);
+  added_since_kf_ = 0;
+}
+
+void VisualInertialOdometry::onStop() {
+  // publish remaining measurements
+  while (!keyframes_.empty()) {
+    PublishSlamChunk(keyframes_.front());
+    keyframes_.pop_front();
+  }
+  // reset tracker
+  tracker_->Reset();
+  keyframes_.clear();
+  // shutdown subscribers
+  image_subscriber_.shutdown();
+  imu_subscriber_.shutdown();
 }
 
 /************************************************************
@@ -180,11 +198,11 @@ void VisualInertialOdometry::processImage(
       // localize frame if not using a frame initializer
       if (!frame_initializer_) { T_WORLD_BASELINK = LocalizeFrame(img_time); }
 
-      // detect if odometry has failed
+      // detect if odometry has failed, reset if so
       if (FailureDetection(img_time, T_WORLD_BASELINK)) {
         ROS_FATAL_STREAM("VIO Failure, reintializing at " << img_time);
-        ros::requestShutdown();
-        // TODO: publish reset request to reinitialize
+        std_srvs::Empty srv;
+        ros::service::call("/local_mapper/reset", srv);
       }
 
       // publish pose to odom topic
@@ -359,7 +377,7 @@ bool VisualInertialOdometry::FailureDetection(
   if (beam::PassedMotionThreshold(T_WORLD_BASELINK, kf_pose, 50.0, 5.0, true,
                                   false)) {
     ROS_FATAL_STREAM("Too large of a pose change. \nCurrent pose:\n"
-                     << T_WORLD_BASELINK << "Previous pose: \n"
+                     << T_WORLD_BASELINK << "\nPrevious pose: \n"
                      << kf_pose);
     return true;
   }
@@ -367,7 +385,7 @@ bool VisualInertialOdometry::FailureDetection(
   // check change in z
   if (std::abs(T_WORLD_BASELINK(2, 3) - kf_pose(2, 3)) > 1) {
     ROS_FATAL_STREAM("Too large of a translation in z. \nCurrent pose:\n"
-                     << T_WORLD_BASELINK << "Previous pose: \n"
+                     << T_WORLD_BASELINK << "\nPrevious pose: \n"
                      << kf_pose);
     return true;
   }

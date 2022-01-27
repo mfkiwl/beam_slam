@@ -57,26 +57,22 @@ private:
   void processIMU(const sensor_msgs::Imu::ConstPtr& msg);
 
   /**
-   * @brief Perform any required initialization for the sensor model
-   *
-   * This could include things like reading from the parameter server or
-   * subscribing to topics. The class's node handles will be properly
-   * initialized before SensorModel::onInit() is called. Spinning of the
-   * callback queue will not begin until after the call to SensorModel::onInit()
-   * completes.
+   * @brief Initialize variables that should remain constant in the case of a
+   * reset request (publishers, parameters, extrinsics etc)
    */
   void onInit() override;
 
   /**
-   * @brief Subscribe to the input topics to start sending transactions to the
-   * optimizer
+   * @brief Subscribe to the input topics and initialize values that should be
+   * fresh after a reset
    */
   void onStart() override;
 
   /**
-   * @brief Unsubscribe to the input topic
+   * @brief Shutdown subscribers, publish remaining keyframes and reset
+   * variables
    */
-  void onStop() override {}
+  void onStop() override;
 
   /**
    * @brief Callback for when a newly optimized graph is available

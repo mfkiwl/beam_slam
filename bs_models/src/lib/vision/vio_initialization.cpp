@@ -1,12 +1,12 @@
 #include <bs_models/vision/vio_initialization.h>
 
-#include <nlohmann/json.hpp>
-
 #include <beam_cv/geometry/AbsolutePoseEstimator.h>
 #include <beam_cv/geometry/Triangulation.h>
 #include <beam_utils/filesystem.h>
 #include <beam_utils/math.h>
 #include <fuse_variables/velocity_linear_3d_stamped.h>
+#include <nlohmann/json.hpp>
+#include <std_srvs/Empty.h>
 
 #include <bs_common/utils.h>
 
@@ -63,15 +63,13 @@ bool VIOInitialization::AddImage(const ros::Time& cur_time) {
 
     // if the scale estimate isnt valid then retry
     if (use_scale_estimate_ && (scale_ < 0.02 || scale_ > 1.0)) {
-      // TODO: publish reset request to reinitialize
       ROS_FATAL_STREAM("Invalid scale estimate: " << scale_
-                                                  << ", reinitializing.");
-      std::queue<sensor_msgs::Imu> empty;
-      std::swap(imu_buffer_, empty);
-      frame_times_.clear();
+                                                  << ", resetting.");
+      std_srvs::Empty srv;
+      ros::service::call("/local_mapper/reset", srv);
       return false;
     }
-    
+
     // initialize preintegration
     imu_preint_ =
         std::make_shared<bs_models::ImuPreintegration>(imu_params_, bg_, ba_);

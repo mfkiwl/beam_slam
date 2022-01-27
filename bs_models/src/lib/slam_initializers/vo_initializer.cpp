@@ -26,24 +26,10 @@ void VOInitializer::onInit() {
   results_publisher_ =
       private_node_handle_.advertise<bs_common::InitializedPathMsg>("result",
                                                                     10);
-  // subscribe to image topic
-  image_subscriber_ =
-      private_node_handle_.subscribe(vo_initializer_params_.image_topic, 100,
-                                     &VOInitializer::processImage, this);
-
-  // subscribe to reset topic
-  reset_subscriber_ = private_node_handle_.subscribe(
-      "/slam_reset", 1, &VOInitializer::processReset, this);
 
   // Load camera model and Create Map object
   cam_model_ = beam_calibration::CameraModel::Create(
       calibration_params_.cam_intrinsics_path);
-
-  // create optimzation graph
-  local_graph_ = std::make_shared<fuse_graphs::HashGraph>();
-
-  // create visual map
-  visual_map_ = std::make_shared<vision::VisualMap>(cam_model_);
 
   // Initialize detector
   std::shared_ptr<beam_cv::Detector> detector = beam_cv::Detector::Create(
@@ -58,16 +44,27 @@ void VOInitializer::onInit() {
       vo_initializer_params_.tracker_window_size);
 }
 
-void VOInitializer::processReset(const std_msgs::Bool::ConstPtr& msg) {
-  // if a reset request is called then we set initialization to be incomplete
-  // and we wipe memory
-  if (msg->data == true) {
-    initialization_complete_ = false;
-    visual_map_->Clear();
-    trajectory_.clear();
-    times_.clear();
-    output_times_.clear();
-  }
+void VOInitializer::onStart() {
+  // subscribe to image topic
+  image_subscriber_ =
+      private_node_handle_.subscribe(vo_initializer_params_.image_topic, 100,
+                                     &VOInitializer::processImage, this);
+  // create optimization graph
+  local_graph_ = std::make_shared<fuse_graphs::HashGraph>();
+
+  // create visual map
+  visual_map_ = std::make_shared<vision::VisualMap>(cam_model_);
+}
+
+void VOInitializer::onStop() {
+  // reset values
+  tracker_->Reset();
+  initialization_complete_ = false;
+  visual_map_->Clear();
+  trajectory_.clear();
+  times_.clear();
+  output_times_.clear();
+  image_subscriber_.shutdown();
 }
 
 void VOInitializer::processImage(const sensor_msgs::Image::ConstPtr& msg) {
