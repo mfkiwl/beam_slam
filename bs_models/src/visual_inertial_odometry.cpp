@@ -23,12 +23,7 @@ namespace bs_models {
 using namespace vision;
 
 VisualInertialOdometry::VisualInertialOdometry()
-    : fuse_core::AsyncSensorModel(1),
-      device_id_(fuse_core::uuid::NIL),
-      throttled_image_callback_(std::bind(&VisualInertialOdometry::processImage,
-                                          this, std::placeholders::_1)),
-      throttled_imu_callback_(std::bind(&VisualInertialOdometry::processIMU,
-                                        this, std::placeholders::_1)) {}
+    : fuse_core::AsyncSensorModel(1), device_id_(fuse_core::uuid::NIL) {}
 
 void VisualInertialOdometry::onInit() {
   // Read settings from the parameter sever
@@ -64,7 +59,7 @@ void VisualInertialOdometry::onInit() {
   // initialize pose refiner object with params
   pose_refiner_ = std::make_shared<beam_cv::PoseRefinement>(1e-2, true, 1.0);
 
-  // Load camera model and Create Map object
+  // Load camera model
   cam_model_ = beam_calibration::CameraModel::Create(
       calibration_params_.cam_intrinsics_path);
 
@@ -92,14 +87,11 @@ void VisualInertialOdometry::onInit() {
 
 void VisualInertialOdometry::onStart() {
   // subscribe to topics
-  image_subscriber_ = private_node_handle_.subscribe<sensor_msgs::Image>(
-      ros::names::resolve(vio_params_.image_topic), 1000,
-      &ThrottledImageCallback::callback, &throttled_image_callback_,
-      ros::TransportHints().tcpNoDelay(false));
-  imu_subscriber_ = private_node_handle_.subscribe<sensor_msgs::Imu>(
-      ros::names::resolve(vio_params_.imu_topic), 10000,
-      &ThrottledIMUCallback::callback, &throttled_imu_callback_,
-      ros::TransportHints().tcpNoDelay(false));
+  image_subscriber_ = private_node_handle_.subscribe(
+      vio_params_.image_topic, 100, &VisualInertialOdometry::processImage,
+      this);
+  imu_subscriber_ = private_node_handle_.subscribe(
+      vio_params_.imu_topic, 1000, &VisualInertialOdometry::processIMU, this);
 
   // Set visual map
   visual_map_ =
@@ -127,9 +119,13 @@ void VisualInertialOdometry::onStop() {
     PublishSlamChunk(keyframes_.front());
     keyframes_.pop_front();
   }
-  // reset tracker
+  // reset variables
   tracker_->Reset();
   keyframes_.clear();
+  std::queue<sensor_msgs::Imu> empty_imu;
+  std::swap(imu_buffer_, empty_imu);
+  std::queue<sensor_msgs::Image> empty_image;
+  std::swap(image_buffer_, empty_image);
   // shutdown subscribers
   image_subscriber_.shutdown();
   imu_subscriber_.shutdown();
