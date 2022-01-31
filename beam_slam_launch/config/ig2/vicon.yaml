@@ -6,8 +6,8 @@ sensor_models:
     type: 'bs_models::VisualInertialOdometry'
     motion_models: ['unicycle_3d']
     ignition: true
-  - name: 'vo_initializer'
-    type: 'bs_models::VOInitializer'
+  - name: 'gt_initializer'
+    type: 'bs_models::GTInitializer'
   
 ###################################
 #    motion model declarations    #
@@ -65,8 +65,9 @@ visual_inertial_odometry:
   # topics to subscribe to
   image_topic: '/F1/image_mono/downscaled'
   imu_topic: '/imu/data'
-  frame_initializer_type: '' 
-  frame_initializer_info: ''
+  init_path_topic: '/local_mapper/gt_initializer/result'
+  frame_initializer_type: 'TRANSFORM' 
+  frame_initializer_info: '/vicon/SDICIG2/SDICIG2 '
   frame_initializer_sensor_frame_id: ''
   frame_initializer_prior_noise_diagonal: [] 
   reloc_request_period: 2.0
@@ -82,20 +83,20 @@ visual_inertial_odometry:
   keyframe_window_size: 30
   keyframe_parallax: 15.0
   # initialization params
-  init_max_optimization_time_in_seconds: 0.5
+  init_max_optimization_time_in_seconds: 0.0
   init_map_output_directory: '' 
-  init_use_scale_estimate: true
+  init_use_scale_estimate: false
 
 ##############################
 #   initializer parameters   #
 ##############################
-vo_initializer:
-  image_topic: '/F1/image_mono/downscaled'
-  detector: 'FAST'
-  detector_config: '/userhome/catkin_ws/src/beam_slam/beam_slam_launch/config/vio_config/fast_detector.json'
-  tracker_config: '/userhome/catkin_ws/src/beam_slam/beam_slam_launch/config/vio_config/tracker.json'
-  parallax: 40.0
-  tracker_window_size: 100
+gt_initializer:
+  imu_topic: "/imu0"
+  frame_initializer_type: 'TRANSFORM' 
+  frame_initializer_info: '/vicon/SDICIG2/SDICIG2 '
+  frame_initializer_sensor_frame_id: ''
+  trajectory_time_window: 5.0
+  min_trajectory_length: 0.5 # trajectory length to accept (in metres)
 
 ############################
 #   publisher parameters   #

@@ -41,9 +41,14 @@ void LidarOdometry::onInit() {
     frame_initializer_ =
         std::make_unique<frame_initializers::PoseFileFrameInitializer>(
             params_.frame_initializer_info);
+  } else if (params_.frame_initializer_type == "TRANSFORM") {
+    frame_initializer_ =
+        std::make_unique<frame_initializers::TransformFrameInitializer>(
+            params_.frame_initializer_info, 100, 30,
+            params_.sensor_frame_id_override);
   } else {
     const std::string error =
-        "frame_initializer_type invalid. Options: ODOMETRY, POSEFILE";
+        "frame_initializer_type invalid. Options: ODOMETRY, POSEFILE, TRANSFORM";
     ROS_FATAL_STREAM(error);
     throw std::runtime_error(error);
   }

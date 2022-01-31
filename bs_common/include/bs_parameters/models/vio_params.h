@@ -23,7 +23,6 @@ public:
   void loadFromROS(const ros::NodeHandle& nh) final {
     /** subscribing topics */
     getParam<std::string>(nh, "image_topic", image_topic, "");
-    getParam<std::string>(nh, "init_path_topic", init_path_topic, "");
     getParam<std::string>(nh, "imu_topic", imu_topic, "");
 
     /** vision configs */
@@ -69,15 +68,15 @@ public:
 
     getParam<double>(nh, "reloc_request_period", reloc_request_period, 3.0);
 
-    // Options: ODOMETRY, POSEFILE
+    /** Options: TRANSFORM, ODOMETRY, POSEFILE */
     getParam<std::string>(nh, "frame_initializer_type", frame_initializer_type,
-                          "");
+                          frame_initializer_type);
 
-    // for ODOMETRY: topic, for POSEFILE: path
+    /** for TRANSFORM: topic, for ODOMETRY: topic, for POSEFILE: path */
     getParam<std::string>(nh, "frame_initializer_info", frame_initializer_info,
-                          "");
+                          frame_initializer_info);
 
-    // for ODOMETRY: topic, for POSEFILE: path
+    /** Optional For Odometry frame initializer */
     getParam<std::string>(nh, "frame_initializer_sensor_frame_id",
                           frame_initializer_sensor_frame_id, "");
 
@@ -100,12 +99,11 @@ public:
 
   // subscribing topics
   std::string image_topic{};
-  std::string init_path_topic{};
   std::string imu_topic{};
 
   // frame initializer
-  std::string frame_initializer_type{};
-  std::string frame_initializer_info{};
+  std::string frame_initializer_type{""};
+  std::string frame_initializer_info{""};
   std::string frame_initializer_sensor_frame_id{};
   Eigen::Matrix<double, 6, 6> prior_covariance{
       Eigen::Matrix<double, 6, 6>::Identity()};

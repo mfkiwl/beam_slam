@@ -10,22 +10,32 @@ PLUGINLIB_EXPORT_CLASS(bs_models::GTInitializer, fuse_core::SensorModel)
 
 namespace bs_models {
 
-GTInitializer::GTInitializer() : fuse_core::AsyncSensorModel(1) {}
-
 void GTInitializer::onInit() {
   // load parameters from ros
-  calibration_params_.loadFromROS();
   gt_initializer_params_.loadFromROS(private_node_handle_);
 
-  // advertise init path publisher
-  results_publisher_ =
-      private_node_handle_.advertise<bs_common::InitializedPathMsg>("result",
-                                                                    100);
+  // init frame initializer
+  if (gt_initializer_params_.frame_initializer_type == "ODOMETRY") {
+    frame_initializer_ =
+        std::make_unique<frame_initializers::OdometryFrameInitializer>(
+            gt_initializer_params_.frame_initializer_info, 100, 30,
+            gt_initializer_params_.frame_initializer_sensor_frame_id);
+  } else if (gt_initializer_params_.frame_initializer_type == "POSEFILE") {
+    frame_initializer_ =
+        std::make_unique<frame_initializers::PoseFileFrameInitializer>(
+            gt_initializer_params_.frame_initializer_info);
+  } else if (gt_initializer_params_.frame_initializer_type == "TRANSFORM") {
+    frame_initializer_ =
+        std::make_unique<frame_initializers::TransformFrameInitializer>(
+            gt_initializer_params_.frame_initializer_info, 100, 30,
+            gt_initializer_params_.frame_initializer_sensor_frame_id);
+  } else {
+    const std::string error =
+        "frame_initializer_type invalid. Options: ODOMETRY, POSEFILE, TRANSFORM";
+    ROS_FATAL_STREAM(error);
+    throw std::runtime_error(error);
+  }
 
-  // make pose file frame initializer
-  frame_initializer_ =
-      std::make_unique<frame_initializers::PoseFileFrameInitializer>(
-          gt_initializer_params_.pose_file_path);
   // compute the max # of poses to keep given they are added at ~10hz
   max_poses_ = gt_initializer_params_.trajectory_time_window.toSec() / 0.1;
 }
@@ -47,7 +57,10 @@ void GTInitializer::onStop() {
 }
 
 void GTInitializer::processIMU(const sensor_msgs::Imu::ConstPtr& msg) {
-  if (initialization_complete_) return;
+  if (initialization_complete_) {
+    imu_subscriber_.shutdown();
+    return;
+  }
   Eigen::Matrix4d T_WORLD_SENSOR;
   bool success = frame_initializer_->GetEstimatedPose(
       T_WORLD_SENSOR, msg->header.stamp, extrinsics_.GetBaselinkFrameId());
@@ -68,40 +81,6 @@ void GTInitializer::processIMU(const sensor_msgs::Imu::ConstPtr& msg) {
       times_.erase(times_.begin());
     }
   }
-}
-
-void GTInitializer::PublishResults() {
-  bs_common::InitializedPathMsg msg;
-
-  for (uint32_t i = 0; i < trajectory_.size(); i++) {
-    Eigen::Matrix4d T = trajectory_[i];
-
-    std_msgs::Header header;
-    header.frame_id = extrinsics_.GetBaselinkFrameId();
-    header.seq = i;
-    header.stamp = times_[i];
-
-    geometry_msgs::Point position;
-    position.x = T(0, 3);
-    position.y = T(1, 3);
-    position.z = T(2, 3);
-
-    Eigen::Matrix3d R = T.block(0, 0, 3, 3);
-    Eigen::Quaterniond q(R);
-
-    geometry_msgs::Quaternion orientation;
-    orientation.x = q.x();
-    orientation.y = q.y();
-    orientation.z = q.z();
-    orientation.w = q.w();
-
-    geometry_msgs::PoseStamped pose;
-    pose.header = header;
-    pose.pose.position = position;
-    pose.pose.orientation = orientation;
-    msg.poses.push_back(pose);
-  }
-  results_publisher_.publish(msg);
 }
 
 } // namespace bs_models

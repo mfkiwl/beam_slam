@@ -54,6 +54,11 @@ void VisualInertialOdometry::onInit() {
     frame_initializer_ =
         std::make_unique<frame_initializers::PoseFileFrameInitializer>(
             vio_params_.frame_initializer_info);
+  } else if (vio_params_.frame_initializer_type == "TRANSFORM") {
+    frame_initializer_ =
+        std::make_unique<frame_initializers::TransformFrameInitializer>(
+            vio_params_.frame_initializer_info, 100, 30,
+            vio_params_.frame_initializer_sensor_frame_id);
   }
 
   // initialize pose refiner object with params
@@ -100,8 +105,7 @@ void VisualInertialOdometry::onStart() {
 
   // Create initializer object
   initialization_ = std::make_shared<vision::VIOInitialization>(
-      cam_model_, tracker_, vio_params_.init_path_topic,
-      calibration_params_.imu_intrinsics_path,
+      cam_model_, tracker_, calibration_params_.imu_intrinsics_path,
       vio_params_.init_use_scale_estimate,
       vio_params_.init_max_optimization_time_in_seconds,
       vio_params_.init_map_output_directory);
@@ -199,6 +203,7 @@ void VisualInertialOdometry::processImage(
         ROS_FATAL_STREAM("VIO Failure, reintializing at " << img_time);
         std_srvs::Empty srv;
         ros::service::call("/local_mapper/reset", srv);
+        return;
       }
 
       // publish pose to odom topic
@@ -310,7 +315,7 @@ Eigen::Matrix4d
     Eigen::Matrix4d T_WORLD_CAMERA =
         pose_refiner_
             ->RefinePose(T_CAMERA_WORLD_est, cam_model_, pixels, points,
-                         covariance)
+                         covariance, nullptr)
             .inverse();
     T_WORLD_BASELINK = T_WORLD_CAMERA * T_cam_baselink_;
   }
